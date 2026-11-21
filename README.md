@@ -94,9 +94,11 @@ docker run --rm -v "$PWD:/work" ghcr.io/it-zone/detnix:latest nix build /work#de
 ```
 
 `/usr/local/bin` contains symlinks to `nix`, `bash`, `coreutils`, `curl`,
-`wget`, `tar`, `gzip`, `jq`, `grep`, `sed`, `awk` and `which`. `/bin/sh` and
-`/bin/bash` exist as well (CI systems and container runtimes call `/bin/sh`
-directly); unknown commands are handed to `bash` instead of failing.
+`wget`, `tar`, `gzip`, `jq`, `grep`, `sed`, `awk` and `which`, plus every
+binary of the NixOS system path (`git`, `ssh`, …). `/bin/sh` and `/bin/bash`
+exist as well (CI systems and container runtimes call `/bin/sh` directly);
+unknown commands are handed to `bash` instead of failing. `/etc` is a writable
+copy of the NixOS one, so CI systems can append to `/etc/hosts`.
 
 ### Why `--privileged --cgroupns=host`?
 
