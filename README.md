@@ -1,5 +1,7 @@
 # detnix
 
+[![build](https://github.com/it-zone/detnix/actions/workflows/build.yml/badge.svg)](https://github.com/it-zone/detnix/actions/workflows/build.yml)
+
 **Deterministic Systemd Nix** — container images that are the systemd-based
 counterpart of [`ghcr.io/nixos/nix:latest`](https://github.com/NixOS/nix).
 
@@ -116,6 +118,13 @@ ghcr.io/it-zone/detnix:0.1.0-arm64
 ```
 
 Triggers: pushes to `main`, `v*` tags, a daily schedule and manual dispatch.
+Documentation-only pushes are ignored — they do not rebuild the image.
+
+The build compiles Determinate Nix from source (the `DeterminateSystems/nix-src`
+flake) and the NixOS system, which takes roughly 25 minutes per architecture
+without a warm Nix store cache. The `magic-nix-cache-action` step shares the
+store between runs when the cache service is reachable; a cache outage only
+costs build time, it does not fail the run.
 
 ## Repository layout
 

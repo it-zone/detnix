@@ -6,6 +6,9 @@ on:
       - main
     tags:
       - "v*"
+    # Documentation-only changes do not need a new image.
+    paths-ignore:
+      - "**.md"
   schedule:
     # Rebuild every day so that the image always tracks the newest
     # nixpkgs-unstable and the newest Determinate Nix.
