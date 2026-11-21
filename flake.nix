@@ -115,6 +115,16 @@
               done
             done
 
+            # Everything the NixOS system itself provides (git, ssh, …). The
+            # system path is only reachable through /run/current-system after
+            # systemd has booted, so the binaries are linked into
+            # /usr/local/bin as well: the image is usable without systemd.
+            for exe in ${nixosSystem.config.system.path}/bin/*; do
+              if [ -e "$exe" ]; then
+                ln -sf "$exe" "usr/local/bin/$(basename "$exe")"
+              fi
+            done
+
             # A POSIX shell at the well known place: CI systems and container
             # runtimes call /bin/sh directly, and a NixOS system does not have
             # one before systemd has booted.
