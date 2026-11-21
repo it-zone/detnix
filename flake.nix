@@ -37,7 +37,15 @@
         pkgs = import nixpkgs {inherit system;};
 
         # Determinate Nix (nix + nix-daemon + man pages), built from source.
-        determinateNix = determinate-nix.packages.${system}.nix;
+        #
+        # The upstream package runs its own test suite in the check phase.
+        # That suite is slow and flaky on CI (it failed on aarch64 in run
+        # 44923402895) and we only need the binaries, so it is disabled here.
+        determinateNix = determinate-nix.packages.${system}.nix.overrideAttrs (
+          old: {
+            doCheck = false;
+          }
+        );
 
         nixosSystem = lib.nixosSystem {
           inherit system;
