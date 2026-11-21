@@ -1,0 +1,119 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  schedule:
+    # Rebuild every day so that the image always tracks the newest
+    # nixpkgs-unstable and the newest Determinate Nix.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: detnix-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  IMAGE_VERSION: "0.1.0"
+
+jobs:
+  build:
+    name: build ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - name: Refresh inputs (newest nixpkgs-unstable + newest Determinate Nix)
+        run: |
+          nix flake update
+          nix flake metadata --json | jq -r '.locks.nodes | to_entries[] | "\(.key): \(.value.locked.rev // .value.locked.lastModified)"'
+
+      - name: Build image
+        run: nix build .#image --print-build-logs
+
+      - name: Load image into Docker
+        run: |
+          set -euxo pipefail
+          case "$(readlink -f result)" in
+            *.zst) zstd -dc result | docker load ;;
+            *.gz)  gzip -dc result | docker load ;;
+            *)     docker load -i result ;;
+          esac
+          docker image ls
+
+      - name: Smoke test
+        run: |
+          set -euxo pipefail
+          docker run -d --name detnix-smoke \
+            --privileged --cgroupns=host \
+            --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
+            "detnix:$IMAGE_VERSION"
+          for i in $(seq 1 30); do
+            state=$(docker exec detnix-smoke systemctl is-system-running || true)
+            case "$state" in
+              running|degraded) break ;;
+            esac
+            sleep 2
+          done
+          docker exec detnix-smoke systemctl is-system-running
+          docker exec detnix-smoke systemctl list-units --failed --no-pager
+          docker exec detnix-smoke nix --version
+          docker exec detnix-smoke nix eval --raw nixpkgs#hello.name
+          docker exec detnix-smoke nix-build '<nixpkgs>' -A hello --no-out-link
+          docker stop detnix-smoke
+
+      - name: Tag and push
+        run: |
+          set -euxo pipefail
+          docker tag "detnix:$IMAGE_VERSION" "$IMAGE_NAME:latest-${{ matrix.arch }}"
+          docker tag "detnix:$IMAGE_VERSION" "$IMAGE_NAME:$IMAGE_VERSION-${{ matrix.arch }}"
+          docker push "$IMAGE_NAME:latest-${{ matrix.arch }}"
+          docker push "$IMAGE_NAME:$IMAGE_VERSION-${{ matrix.arch }}"
+
+  manifest:
+    name: publish manifest list
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create multi-arch manifest
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push manifest list
+        run: |
+          set -euxo pipefail
+          docker buildx imagetools create \
+            --tag "$IMAGE_NAME:latest" \
+            "$IMAGE_NAME:latest-amd64" \
+            "$IMAGE_NAME:latest-arm64"
+          docker buildx imagetools create \
+            --tag "$IMAGE_NAME:$IMAGE_VERSION" \
+            "$IMAGE_NAME:$IMAGE_VERSION-amd64" \
+            "$IMAGE_NAME:$IMAGE_VERSION-arm64"
+          docker buildx imagetools inspect "$IMAGE_NAME:latest"
