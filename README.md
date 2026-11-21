@@ -32,8 +32,10 @@ As a normal user it runs without a Nix daemon at all (`NIX_REMOTE=local`).
   cleanly on `docker stop`.
 - **Content-addressed store** — the Nix database is baked into the image, so
   `nix-store --query --requisites` and garbage collection work out of the box.
-- **Works offline** — the nixpkgs source is part of the image, so `nix build
-  '<nixpkgs>' -A hello` and `nix eval nixpkgs#hello` need no network.
+- **Works offline** — the nixpkgs source is part of the image, so `nix eval
+  nixpkgs#hello` and `nix build '<nixpkgs>' -A hello` evaluate without a
+  channel and without network access (the built binaries themselves are
+  fetched from the binary cache, as usual).
 - **Runs as a normal user** — the image starts as the unprivileged user
   `detnix` (uid 1000). Nix works without root and without a Nix daemon
   (`NIX_REMOTE=local`): the store directory and the Nix database are writable
@@ -181,8 +183,14 @@ scripts/smoke-test.sh         # boot test: systemd, nix, nix-build
    inside the image, layers it per store path, and bakes the Nix database.
 4. The nixpkgs source is added to the image as well and put into `NIX_PATH`,
    so `<nixpkgs>` resolves without a channel and without network access.
-5. `extraCommands` writes the `/entrypoint` dispatcher (no arguments → systemd
-   as PID 1, otherwise the given command) and the `/usr/local/bin` symlinks.
+5. `extraCommands` writes the `/entrypoint` dispatcher and the
+   `/usr/local/bin` symlinks. The dispatcher boots systemd as PID 1 when the
+   container runs as root with `CAP_SYS_ADMIN`, and hands the command to bash
+   otherwise — so the same image works as a plain Nix container and as a
+   systemd system.
+6. The image is owned by the unprivileged user `detnix` (uid 1000): `/etc` is
+   a writable copy, `/nix/store` is writable (1777) and the Nix database
+   belongs to that user, so Nix can build without root and without a daemon.
 
 ## Determinism notes
 
