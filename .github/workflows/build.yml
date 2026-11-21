@@ -77,11 +77,25 @@ jobs:
           esac
           docker image ls
 
-      - name: Smoke test
+      - name: Smoke test (unprivileged)
+        run: |
+          set -euxo pipefail
+          # The image runs as the unprivileged user "detnix" (uid 1000) by
+          # default: Nix works without root and without a Nix daemon.
+          docker run --rm "detnix:$IMAGE_VERSION" /bin/sh -c '
+            id
+            echo "HOME=$HOME"
+            mkdir -p "$HOME/.config/nix"
+            nix --version
+            nix eval --raw nixpkgs#hello.name
+            nix build --no-link nixpkgs#hello
+          '
+
+      - name: Smoke test (systemd)
         run: |
           set -euxo pipefail
           docker run -d --name detnix-smoke \
-            --privileged --cgroupns=host \
+            --user root --privileged --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
             "detnix:$IMAGE_VERSION"
           for i in $(seq 1 30); do

@@ -31,6 +31,22 @@ in {
       '';
     };
 
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "detnix";
+      description = ''
+        The unprivileged user the image runs as. Everything inside the image
+        belongs to this user, so Nix can build without root and without a
+        Nix daemon.
+      '';
+    };
+
+    uid = lib.mkOption {
+      type = lib.types.int;
+      default = 1000;
+      description = "UID of the unprivileged user.";
+    };
+
     nixpkgsPath = lib.mkOption {
       type = lib.types.str;
       default = toString pkgs.path;
@@ -57,8 +73,10 @@ in {
         "flakes"
       ];
 
-      # Root is trusted (as on a normal NixOS install).
-      trusted-users = ["root"];
+      # Root and the unprivileged image user are trusted (as on a normal
+      # NixOS install). Trusted users may set substituters, trusted public
+      # keys and the sandbox setting in their own nix.conf.
+      trusted-users = ["root" cfg.user];
 
       # Empty group => builds run as the invoking user instead of nixbld
       # users, which do not exist in a container.
@@ -133,15 +151,39 @@ in {
     # /root/.nix-profile and the default profile are created by the nix
     # activation script; make sure the shell picks them up.
     environment.variables = {
+      # Single user Nix: the image runs without a Nix daemon, so that it
+      # works in unprivileged containers as well.
       NIX_REMOTE = lib.mkForce "local";
 
       # The image ships the nixpkgs source, so <nixpkgs> resolves offline.
-      NIX_PATH = lib.mkForce "nixpkgs=${cfg.nixpkgsPath}:/nix/var/nix/profiles/per-user/root/channels:/root/.nix-defexpr/channels";
+      # The channel profiles are not listed: they only exist after the
+      # activation and would produce "search path entry does not exist"
+      # warnings.
+      NIX_PATH = lib.mkForce "nixpkgs=${cfg.nixpkgsPath}";
 
       EDITOR = "vi";
       PAGER = "less";
     };
 
     users.users.root.shell = pkgs.bashInteractive;
+
+    # The unprivileged user the image runs as. It owns everything inside the
+    # image, so it can build with Nix without root and without a daemon.
+    users.users.${cfg.user} = {
+      uid = cfg.uid;
+      group = "users";
+      isNormalUser = true;
+      home = "/home/${cfg.user}";
+      createHome = true;
+      shell = pkgs.bashInteractive;
+      description = "Unprivileged user of the detnix image";
+    };
+
+    # NixOS generates /etc/passwd and /etc/group during the activation, so
+    # they are missing from the image itself. Without them Nix cannot resolve
+    # the home directory of the user the image runs as ("cannot determine
+    # user's home directory"), so a minimal version is baked into the image by
+    # the flake (as regular files, not as symlinks into the read-only store:
+    # the activation script has to be able to write them).
   };
 }

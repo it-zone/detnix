@@ -9,7 +9,8 @@ counterpart of [`ghcr.io/nixos/nix:latest`](https://github.com/NixOS/nix).
 binaries and no init system. `detnix` keeps the same spirit — everything is
 built by Nix, nothing by a Dockerfile — but boots a real **NixOS system with
 systemd as PID 1**, so the container behaves like a small Linux system with
-services, `systemctl`, `/run/current-system`, and a proper `nix-daemon`.
+services, `systemctl`, `/run/current-system` and a proper Nix installation.
+As a normal user it runs without a Nix daemon at all (`NIX_REMOTE=local`).
 
 | | `ghcr.io/nixos/nix:latest` | `ghcr.io/it-zone/detnix:latest` |
 |---|---|---|
@@ -33,14 +34,37 @@ services, `systemctl`, `/run/current-system`, and a proper `nix-daemon`.
   `nix-store --query --requisites` and garbage collection work out of the box.
 - **Works offline** — the nixpkgs source is part of the image, so `nix build
   '<nixpkgs>' -A hello` and `nix eval nixpkgs#hello` need no network.
+- **Runs as a normal user** — the image starts as the unprivileged user
+  `detnix` (uid 1000). Nix works without root and without a Nix daemon
+  (`NIX_REMOTE=local`): the store directory and the Nix database are writable
+  for that user, `/etc` is a writable copy.
 - **Multi-arch** — `x86_64-linux` and `aarch64-linux`, published as a single
   manifest list.
 
 ## Usage
 
+The image runs as the unprivileged user `detnix` (uid 1000) by default — no
+privileged container needed:
+
+```bash
+docker run --rm -it ghcr.io/it-zone/detnix:latest
+docker run --rm -it -v "$PWD:/work" ghcr.io/it-zone/detnix:latest
+```
+
+```console
+$ id
+uid=1000(detnix) gid=1000(users) groups=1000(users)
+$ nix --version
+nix (Determinate Nix 3.24.3) 2.35.6
+$ nix build '<nixpkgs>' -A hello
+```
+
+To boot the full NixOS system with systemd as PID 1, run it as root in a
+privileged container:
+
 ```bash
 docker run --rm -it \
-  --privileged --cgroupns=host \
+  --user root --privileged --cgroupns=host \
   --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
   ghcr.io/it-zone/detnix:latest
 ```
@@ -68,8 +92,9 @@ docker run --rm -v "$PWD:/work" ghcr.io/it-zone/detnix:latest nix build /work#de
 ```
 
 `/usr/local/bin` contains symlinks to `nix`, `bash`, `coreutils`, `curl`,
-`wget`, `tar`, `gzip`, `jq` and `which`. A NixOS system has no `/bin/sh`, so
-unknown commands are handed to `bash` instead of failing.
+`wget`, `tar`, `gzip`, `jq`, `grep`, `sed`, `awk` and `which`. `/bin/sh` and
+`/bin/bash` exist as well (CI systems and container runtimes call `/bin/sh`
+directly); unknown commands are handed to `bash` instead of failing.
 
 ### Why `--privileged --cgroupns=host`?
 
@@ -80,20 +105,26 @@ cannot manage cgroups and the boot will fail with
 recipe for running systemd in Docker; drop `--privileged` only if you accept
 that systemd will not manage services.
 
+Without systemd — the default mode of this image — none of that is needed: the
+container runs as the unprivileged user `detnix` and Nix works with its own
+writable store.
+
 ## Building locally
 
 ```bash
 nix build .#image          # → ./result (a zstd-compressed docker archive)
 docker load -i result      # docker ≥ 25 reads .tar.zst directly
-docker run --rm -it --privileged --cgroupns=host \
-  --tmpfs /run --tmpfs /run/lock --tmpfs /tmp detnix:0.1.0
+docker run --rm -it detnix:0.1.0                       # unprivileged
+docker run --rm -it --user root --privileged --cgroupns=host \
+  --tmpfs /run --tmpfs /run/lock --tmpfs /tmp detnix:0.1.0   # with systemd
 ```
 
 or with the helper scripts:
 
 ```bash
 ./scripts/build-image.sh --update   # refresh inputs + build + docker load
-./scripts/run-image.sh               # run the built image with the right flags
+./scripts/run-image.sh               # unprivileged shell
+./scripts/run-image.sh --systemd     # with systemd as PID 1
 ./scripts/smoke-test.sh              # boot it and check systemd + nix
 ```
 
@@ -132,7 +163,7 @@ costs build time, it does not fail the run.
 flake.nix                     # image, toplevel, checks, devShells
 nix/modules/detnix.nix        # the NixOS module that shapes the system
 scripts/build-image.sh        # build + docker load
-scripts/run-image.sh          # run with the flags systemd needs
+scripts/run-image.sh          # run the image (--systemd for the systemd mode)
 scripts/smoke-test.sh         # boot test: systemd, nix, nix-build
 .github/workflows/build.yml   # build, test, publish to ghcr.io
 ```
