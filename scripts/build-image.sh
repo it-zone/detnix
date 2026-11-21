@@ -16,10 +16,12 @@ echo "==> building .#image"
 nix build .#image --print-build-logs
 
 echo "==> loading image into Docker"
-case "$(readlink -f result)" in
-  *.zst) zstd -dc result | docker load ;;
-  *.gz) gzip -dc result | docker load ;;
-  *) docker load -i result ;;
+# `result` is a symlink: resolve it, the decompressors skip symlinks.
+archive="$(readlink -f result)"
+case "$archive" in
+  *.zst) zstd -dc "$archive" | docker load ;;
+  *.gz) gzip -dc "$archive" | docker load ;;
+  *) docker load -i "$archive" ;;
 esac
 
 echo "==> done:"

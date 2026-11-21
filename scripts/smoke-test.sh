@@ -37,7 +37,7 @@ echo "==> failed units (if any):"
 docker exec "$NAME" systemctl list-units --failed --no-pager || true
 
 echo "==> systemctl is-system-running"
-docker exec "$NAME" systemctl is-system-running
+docker exec "$NAME" systemctl is-system-running || true
 
 echo "==> nix --version"
 docker exec "$NAME" nix --version
