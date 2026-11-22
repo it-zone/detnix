@@ -41,11 +41,41 @@
         # The upstream package runs its own test suite in the check phase.
         # That suite is slow and flaky on CI (it failed on aarch64 in run
         # 44923402895) and we only need the binaries, so it is disabled here.
-        determinateNix = determinate-nix.packages.${system}.nix.overrideAttrs (
-          old: {
-            doCheck = false;
-          }
-        );
+        #
+        # libgit2 refuses to open a repository that is owned by another user:
+        #   "repository path '/woodpecker/src/...' is not owned by current user"
+        # CI systems mount the workspace from the host, where the owner is a
+        # different user than the one running in the container, so a flake
+        # input like git+file:///woodpecker/src/.../project cannot be fetched.
+        # Turning the validation off is what git itself does for its
+        # "safe.directory" entries.
+        #
+        # The patch is applied to libgit2 (the only place where the check
+        # lives) and the Determinate components are built with the nixpkgs
+        # the overlay provides, so the patched library ends up in the image.
+        detPkgs = import determinate-nix.inputs.nixpkgs {
+          inherit system;
+          overlays = [
+            determinate-nix.overlays.default
+            (final: prev: {
+              libgit2 = prev.libgit2.overrideAttrs (old: {
+                postPatch =
+                  (old.postPatch or "")
+                  + ''
+                    sed -i 's/^bool git_repository__validate_ownership = true;/bool git_repository__validate_ownership = false;/' src/libgit2/repository.c
+                    grep -q 'git_repository__validate_ownership = false' src/libgit2/repository.c || {
+                      echo "detnix: could not patch libgit2" >&2
+                      exit 1
+                    }
+                  '';
+              });
+            })
+          ];
+        };
+
+        determinateNix = detPkgs.nix.overrideAttrs (old: {
+          doCheck = false;
+        });
 
         nixosSystem = lib.nixosSystem {
           inherit system;

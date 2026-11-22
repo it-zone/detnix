@@ -40,6 +40,9 @@ As a normal user it runs without a Nix daemon at all (`NIX_REMOTE=local`).
   `detnix` (uid 1000). Nix works without root and without a Nix daemon
   (`NIX_REMOTE=local`): the store directory and the Nix database are writable
   for that user, `/etc` is a writable copy.
+- **CI friendly** — libgit2's "repository is not owned by current user"
+  validation is disabled in the image, so `nix flake …` works on a workspace
+  that is owned by another user (CI runners, mounted volumes, `docker cp`).
 - **Multi-arch** — `x86_64-linux` and `aarch64-linux`, published as a single
   manifest list.
 
@@ -220,6 +223,12 @@ scripts/smoke-test.sh         # boot test: systemd, nix, nix-build
 6. The image is owned by the unprivileged user `detnix` (uid 1000): `/etc` is
    a writable copy, `/nix/store` is writable (1777) and the Nix database
    belongs to that user, so Nix can build without root and without a daemon.
+7. The Determinate Nix overlay is used to rebuild **libgit2** with the
+   repository owner validation turned off
+   (`bool git_repository__validate_ownership = false`). Without it, `nix flake
+   …` refuses to open a git repository that is owned by another user, which is
+   exactly what happens with a CI workspace that is mounted into the
+   container.
 
 ## Determinism notes
 
