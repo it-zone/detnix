@@ -105,7 +105,8 @@ docker run --rm -v "$PWD:/work" ghcr.io/it-zone/detnix:latest nix build /work#de
 binary of the NixOS system path (`git`, `ssh`, …). `/bin/sh` and `/bin/bash`
 exist as well (CI systems and container runtimes call `/bin/sh` directly);
 unknown commands are handed to `bash` instead of failing. `/etc` is a writable
-copy of the NixOS one, so CI systems can append to `/etc/hosts`.
+copy of the NixOS one — note that container runtimes mount the host's
+`/etc/hosts` over it, see [Publishing](#publishing) for the root flavour.
 
 ### Why `--privileged --cgroupns=host`?
 
@@ -124,8 +125,10 @@ writable store.
 
 ```bash
 nix build .#image          # → ./result (a zstd-compressed docker archive)
+nix build .#imageRoot      # → ./result-1 (the same image, starting as root)
 docker load -i result      # docker ≥ 25 reads .tar.zst directly
 docker run --rm -it detnix:0.1.0                       # unprivileged
+docker run --rm -it detnix:0.1.0-root                  # as root
 docker run --rm -it --user root --privileged --cgroupns=host \
   --tmpfs /run --tmpfs /run/lock --tmpfs /tmp detnix:0.1.0   # with systemd
 ```
