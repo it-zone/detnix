@@ -61,20 +61,22 @@ jobs:
           nix flake update
           nix flake metadata --json | jq -r '.locks.nodes | to_entries[] | "\(.key): \(.value.locked.rev // .value.locked.lastModified)"'
 
-      - name: Build image
-        run: nix build .#image --print-build-logs
+      - name: Build images
+        run: nix build .#image .#imageRoot --print-build-logs
 
-      - name: Load image into Docker
+      - name: Load images into Docker
         run: |
           set -euxo pipefail
           # `result` is a symlink; resolve it, otherwise the decompressors
           # refuse to read it (zstd skips symlinks silently).
-          archive="$(readlink -f result)"
-          case "$archive" in
-            *.zst) zstd -dc "$archive" | docker load ;;
-            *.gz)  gzip -dc "$archive" | docker load ;;
-            *)     docker load -i "$archive" ;;
-          esac
+          for link in result result-1; do
+            archive="$(readlink -f "$link")"
+            case "$archive" in
+              *.zst) zstd -dc "$archive" | docker load ;;
+              *.gz)  gzip -dc "$archive" | docker load ;;
+              *)     docker load -i "$archive" ;;
+            esac
+          done
           docker image ls
 
       - name: Smoke test (unprivileged)
@@ -89,6 +91,18 @@ jobs:
             nix --version
             nix eval --raw nixpkgs#hello.name
             nix build --no-link nixpkgs#hello
+          '
+
+      - name: Smoke test (root flavour)
+        run: |
+          set -euxo pipefail
+          # The root flavour of the same image: CI jobs that append to
+          # /etc/hosts need it, because container runtimes mount the host's
+          # /etc/hosts over the one in the image.
+          docker run --rm "detnix:$IMAGE_VERSION-root" /bin/sh -c '
+            id
+            nix --version
+            nix eval --raw nixpkgs#hello.name
           '
 
       - name: Smoke test (systemd)
@@ -122,10 +136,16 @@ jobs:
       - name: Tag and push
         run: |
           set -euxo pipefail
+          # The unprivileged flavour.
           docker tag "detnix:$IMAGE_VERSION" "$IMAGE_NAME:latest-${{ matrix.arch }}"
           docker tag "detnix:$IMAGE_VERSION" "$IMAGE_NAME:$IMAGE_VERSION-${{ matrix.arch }}"
           docker push "$IMAGE_NAME:latest-${{ matrix.arch }}"
           docker push "$IMAGE_NAME:$IMAGE_VERSION-${{ matrix.arch }}"
+          # The root flavour.
+          docker tag "detnix:$IMAGE_VERSION-root" "$IMAGE_NAME:latest-root-${{ matrix.arch }}"
+          docker tag "detnix:$IMAGE_VERSION-root" "$IMAGE_NAME:$IMAGE_VERSION-root-${{ matrix.arch }}"
+          docker push "$IMAGE_NAME:latest-root-${{ matrix.arch }}"
+          docker push "$IMAGE_NAME:$IMAGE_VERSION-root-${{ matrix.arch }}"
 
   manifest:
     name: publish manifest list
@@ -153,4 +173,12 @@ jobs:
             --tag "$IMAGE_NAME:$IMAGE_VERSION" \
             "$IMAGE_NAME:$IMAGE_VERSION-amd64" \
             "$IMAGE_NAME:$IMAGE_VERSION-arm64"
+          docker buildx imagetools create \
+            --tag "$IMAGE_NAME:latest-root" \
+            "$IMAGE_NAME:latest-root-amd64" \
+            "$IMAGE_NAME:latest-root-arm64"
+          docker buildx imagetools create \
+            --tag "$IMAGE_NAME:$IMAGE_VERSION-root" \
+            "$IMAGE_NAME:$IMAGE_VERSION-root-amd64" \
+            "$IMAGE_NAME:$IMAGE_VERSION-root-arm64"
           docker buildx imagetools inspect "$IMAGE_NAME:latest"

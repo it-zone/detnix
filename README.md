@@ -61,6 +61,13 @@ nix (Determinate Nix 3.24.3) 2.35.6
 $ nix build '<nixpkgs>' -A hello
 ```
 
+The same image is also published as `:latest-root`, which starts as root
+instead:
+
+```bash
+docker run --rm -it ghcr.io/it-zone/detnix:latest-root
+```
+
 To boot the full NixOS system with systemd as PID 1, run it as root in a
 privileged container:
 
@@ -151,6 +158,23 @@ ghcr.io/it-zone/detnix:latest-arm64
 ghcr.io/it-zone/detnix:0.1.0-amd64
 ghcr.io/it-zone/detnix:0.1.0-arm64
 ```
+
+Two flavours of the same image are published: the default one starts as the
+unprivileged user `detnix`, the `:latest-root` / `:0.1.0-root` ones start as
+root.
+
+```bash
+ghcr.io/it-zone/detnix:latest-root         # multi-arch manifest, runs as root
+ghcr.io/it-zone/detnix:latest-root-amd64
+ghcr.io/it-zone/detnix:latest-root-arm64
+ghcr.io/it-zone/detnix:0.1.0-root
+```
+
+Use the root flavour when the job has to write to `/etc/hosts`: container
+runtimes mount the *host's* `/etc/hosts` over the one in the image, and that
+file belongs to root, so an unprivileged job cannot append to it. Everything
+else (Nix builds, `~/.config/nix/nix.conf`, the Nix database, the store) works
+as the unprivileged user.
 
 Triggers: pushes to `main`, `v*` tags, a daily schedule and manual dispatch.
 Documentation-only pushes are ignored — they do not rebuild the image.
